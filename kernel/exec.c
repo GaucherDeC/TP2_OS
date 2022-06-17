@@ -98,21 +98,11 @@ exec(char *path, char **argv)
   ip = 0;
 
   p = myproc();
-
-  // Allocate two pages at the next page boundary.
-  // Use the second as the user stack.
-  sz = PGROUNDUP(sz);
-  if((sz = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0){
-    printf("exec: uvmalloc failed for the stack\n");
-    goto bad;
-  }
-  uvmclear(pagetable, sz-2*PGSIZE);
-  sp = sz;
-  stackbase = sp - PGSIZE;
-
-  memory_area = add_memory_area (p, stackbase-PGSIZE, stackbase);
-  p->stack_vma = add_memory_area (p, stackbase, stackbase + PGSIZE);
-  p->heap_vma = add_memory_area (p, stackbase + PGSIZE, stackbase + PGSIZE);
+  sp = USTACK_TOP;
+  stackbase = USTACK_BOTTOM;
+  memory_area = add_memory_area (p, sz, sz + PGSIZE);
+  p->stack_vma = add_memory_area (p, stackbase, sp);
+  p->heap_vma = add_memory_area (p, sz + PGSIZE, sz + PGSIZE);
   acquire (&p->vma_lock);
   p->stack_vma->vma_flags = VMA_R | VMA_W;
   p->heap_vma->vma_flags = VMA_R | VMA_W;
@@ -178,7 +168,7 @@ exec(char *path, char **argv)
 
  bad:
   if(pagetable)
-    proc_freepagetable(pagetable, sz);
+    proc_freepagetable(pagetable, USTACK_TOP);
   if(ip){
     iunlockput(ip);
     end_op(ROOTDEV);
