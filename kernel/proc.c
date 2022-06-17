@@ -343,6 +343,7 @@ void userinit(void) {
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  add_memory_area(p, 0, PGSIZE);
 
   // prepare for the very first "return" from kernel to user.
   p->tf->epc = 0;     // user program counter
@@ -395,6 +396,7 @@ int fork(void) {
   np->sz = p->sz;
 
   np->parent = p;
+  vma_copy(np, p);
 
   // copy saved user registers.
   *(np->tf) = *(p->tf);
