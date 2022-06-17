@@ -362,16 +362,25 @@ void userinit(void) {
 int growproc(long n) {
   uint64 sz;
   struct proc *p = myproc();
+  acquire (&p->vma_lock);
+  uint64 va_end_save = p->heap_vma->va_end;
+  p->heap_vma->va_end = va_end_save + n;
+
+  if (p->heap_vma->va_begin > p->heap_vma->va_end || p->heap_vma->va_end - p->heap_vma->va_begin >= HEAP_THRESHOLD)
+  {
+    p->heap_vma->va_end = va_end_save;
+    release (&p->vma_lock);
+    return -1;
+  }
 
   sz = p->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
-      return -1;
-    }
+  sz = p->sz + n;
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
+  release (&p->vma_lock);
   return 0;
 }
 
