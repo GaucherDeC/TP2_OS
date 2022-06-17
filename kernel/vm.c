@@ -405,6 +405,20 @@ int do_allocate(pagetable_t pagetable, struct proc* p, uint64 addr){
 }
 
 int do_allocate_range(pagetable_t pagetable, struct proc* p, uint64 addr, uint64 len){
+  uint64 low_addr = PGROUNDDOWN (addr);
+  uint64 high_addr = PGROUNDUP (addr+len);
+  uint64 n_pages = (high_addr - low_addr) / PGSIZE;
+  acquire (&p->vma_lock);
+  for (int page=0; page<n_pages; page++)
+  {
+    int flags = do_allocate (pagetable, p, low_addr + page * PGSIZE);
+    if (flags)
+    {
+      release (&p->vma_lock);
+      return flags;
+    }
+  }
+  release (&p->vma_lock);
   return 0;
 }
 
