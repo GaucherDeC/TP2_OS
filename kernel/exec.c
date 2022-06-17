@@ -16,31 +16,25 @@ exec(char *path, char **argv)
 {
   char *s, *last;
   int i, off;
-  uint64 argc, sz, oldsz, sp, ustack[MAXARG+1], stackbase;
+  uint64 argc, sz, sp, ustack[MAXARG+1], stackbase;
   struct elfhdr elf;
   struct inode *ip;
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
-  oldsz = max_addr_in_memory_areas (p);
+  struct vma* stack_vma = 0;
+  struct vma* heap_vma = 0;
+  struct vma* memory_areas = 0;
 
   begin_op(ROOTDEV);
 
+  int max;
+  max = max_addr_in_memory_areas(p);
   if((ip = namei(path)) == 0){
     end_op(ROOTDEV);
     return -1;
   }
   ilock(ip);
-
-  acquire(&p->vma_lock);
-  struct vma* memory_area;
-  struct vma* stack_vma_save = p->stack_vma;
-  struct vma* heap_vma_save = p->heap_vma;
-  struct vma* memory_areas_save = p->memory_areas;
-  p->stack_vma = 0;
-  p->heap_vma = 0;
-  p->memory_areas = 0;
-  release(&p->vma_lock);
 
   // Check ELF header
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf)){
@@ -55,6 +49,10 @@ exec(char *path, char **argv)
     printf("exec: proc_pagetable error\n");
     goto bad;
   }
+  stack_vma = p->stack_vma;
+  heap_vma = p->heap_vma;
+  memory_areas = p->memory_areas;
+  p->memory_areas = 0;
 
   // Load program into memory.
   sz = 0;
@@ -76,18 +74,16 @@ exec(char *path, char **argv)
       printf("exec: uvmalloc failed\n");
       goto bad;
     }
+    struct vma * temp = p->memory_areas;
+    add_memory_area(p, ph.vaddr,ph.vaddr+ph.memsz);
+    while (temp){
+      temp->vma_flags = VMA_X | VMA_R | VMA_W;
+      temp = temp->next;
+    }
     if(ph.vaddr % PGSIZE != 0){
       printf("exec: vaddr not page aligned\n");
       goto bad;
     }
-    memory_area = add_memory_area (p, ph.vaddr, ph.vaddr+ph.memsz);
-    memory_area->vma_flags = 0;
-    if (ph.flags & ELF_PROG_FLAG_EXEC)
-      memory_area->vma_flags |= VMA_X;
-    if (ph.flags & ELF_PROG_FLAG_READ)
-      memory_area->vma_flags |= VMA_R;
-    if (ph.flags & ELF_PROG_FLAG_WRITE)
-      memory_area->vma_flags |= VMA_W;
     if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0){
       printf("exec: loadseg failed\n");
       goto bad;
@@ -98,15 +94,15 @@ exec(char *path, char **argv)
   ip = 0;
 
   p = myproc();
+  //uint64 oldsz = p->sz;
+  p->stack_vma = 0;
+  if (!(p->stack_vma = add_memory_area(p,USTACK_BOTTOM,USTACK_TOP))){
+    goto bad;
+  }
+  p->stack_vma->vma_flags = VMA_R | VMA_W;
+  sz = USTACK_TOP;
   sp = USTACK_TOP;
   stackbase = USTACK_BOTTOM;
-  memory_area = add_memory_area (p, sz, sz + PGSIZE);
-  p->stack_vma = add_memory_area (p, stackbase, sp);
-  p->heap_vma = add_memory_area (p, sz + PGSIZE, sz + PGSIZE);
-  acquire (&p->vma_lock);
-  p->stack_vma->vma_flags = VMA_R | VMA_W;
-  p->heap_vma->vma_flags = VMA_R | VMA_W;
-  release(&p->vma_lock);
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -157,28 +153,27 @@ exec(char *path, char **argv)
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
+  //p->sz = sz;
   p->tf->epc = elf.entry;  // initial program counter = main
   p->tf->sp = sp; // initial stack pointer
-  proc_freepagetable(oldpagetable, oldsz);
-  acquire (&p->vma_lock);
-  free_vma (memory_areas_save);
-  release(&p->vma_lock);
+  p->heap_vma = 0;
+  p->heap_vma = add_memory_area(p,sz,sz);
+  p->heap_vma->vma_flags = VMA_R | VMA_W;
+  proc_freepagetable(oldpagetable, max);
+  free_vma(memory_areas);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
   if(pagetable)
-    proc_freepagetable(pagetable, USTACK_TOP);
+    proc_freepagetable(pagetable, max);
   if(ip){
     iunlockput(ip);
     end_op(ROOTDEV);
   }
-  acquire(&p->vma_lock);
-  free_vma (p->memory_areas);
-  p->stack_vma = stack_vma_save;
-  p->heap_vma = heap_vma_save;
-  p->memory_areas = memory_areas_save;
-  release(&p->vma_lock);
+  p->heap_vma = heap_vma;
+  p->stack_vma = stack_vma;
+  p->memory_areas = memory_areas;
   return -1;
 }
 

@@ -342,6 +342,8 @@ void userinit(void) {
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   add_memory_area(p, 0, PGSIZE);
+  p->memory_areas->vma_flags = VMA_R | VMA_W | VMA_X;
+
 
   // prepare for the very first "return" from kernel to user.
   p->tf->epc = 0;     // user program counter
