@@ -377,6 +377,15 @@ int load_from_file(char* file,
   }
 
 int do_allocate(pagetable_t pagetable, struct proc* p, uint64 addr){
+  pte_t *pte = walk (pagetable, addr, 0);
+  if (!pte || (*pte & PTE_V) == 0)
+  {
+    return ENOMEM;
+  }
+  if ((*pte & PTE_U) == 0)
+  {
+    return EBADPERM;
+  }
   return 0;
 }
 
